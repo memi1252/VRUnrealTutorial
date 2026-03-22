@@ -216,7 +216,7 @@ public:
 	bool bIsLeftMainHand;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Variables | Grabbing")
-	TArray<TEnumAsByte<EObjectTypeQuery>> GrabblebjectTypes = { ObjectTypeQuery7 };
+	TArray<TEnumAsByte<EObjectTypeQuery>> GrabbleObjectTypes = { ObjectTypeQuery7 };
 	
 #pragma endregion
 	
@@ -444,11 +444,11 @@ public:
 	
 	void UpdateGrabbbing(AActor* GrabbedActor, bool bIsMainHand, UPhysicsConstraintComponent* PC, UMotionControllerComponent* MC, FName BoneToConstrainTo);
 	
-	void StopGrabbing(UPhysicsConstraintComponent* PC, AActor* GrabbedActor, AActor* OtherActor);
+	void StopGrabbing(UPhysicsConstraintComponent* PC, AActor* GrabbedActor, AActor* OtherGrabbedActor);
 	
 	void ReleaseGrabbedActor(AActor* GrabbedActor);
 	
-	FHitResult TraceForObjects(UMotionControllerComponent* MC, TArray<TEnumAsByte<EObjectTypeQuery>> ObjecTypes);
+	FHitResult TraceForObjects(UMotionControllerComponent* MC, TArray<TEnumAsByte<EObjectTypeQuery>> ObjectTypes);
 	
 #pragma endregion
 	
@@ -489,15 +489,15 @@ public:
 	
 	FName GetHandBoneName(FName HandBoneName);
 	
-	bool StartWeaponInteraction(AActor*& GrabbedActor, TScriptInterface<IWeaponInterface>& WI, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC, UMotionControllerComponent* MC);
+	bool StartWeaponInteraction(AActor*& GrabbedActor, TScriptInterface<IWeaponInterface>& WI, UMotionControllerComponent* PC, FName BoneToConstrainTo, UPhysicsConstraintComponent* MC);
 	
-	bool UpdateWeaponInteraction(TScriptInterface<IWeaponInterface> WI, bool bIsMainHand, UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicalAnimationComponent* PC);
+	bool UpdateWeaponInteraction(TScriptInterface<IWeaponInterface> WI, bool bIsMainHand, UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC);
 	
 	bool StopWeaponInteraction(TScriptInterface<IWeaponInterface>& WI, bool bIsMainHand, AActor* GrabbedActor, UPhysicsConstraintComponent* PC);
 	
 #pragma region Ammo Box Interactions
 	
-	void StartAmmoInteraction(UMotionControllerComponent* MC, AActor*& GrabbedActor, FName BoneToAttachTo);
+	void StartAmmoBoxInteraction(UMotionControllerComponent* MC, AActor*& GrabbedActor, FName BoneToAttachTo);
 	
 	void StopAmmoBoxInteraction(AActor*& GrabbedActor);
 	

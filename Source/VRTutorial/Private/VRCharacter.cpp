@@ -654,50 +654,205 @@ void AVRCharacter::StopGrabbingLeft(const FInputActionValue& Value)
 AActor* AVRCharacter::StartGrabbing(UPhysicsConstraintComponent* PC, FName BoneToConstrainTo, AActor* OtherGrabbedActor,
 	UMotionControllerComponent* MC, bool& bIsMainHand, bool bIsOtherMainHand)
 {
+	FHitResult Hit = TraceForObjects(MC, GrabbleObjectTypes);
+	AActor* HitActor  = Hit.GetActor();
+	
+	if (HitActor && !HitActor->IsA<AAmmoBase>())
+	{
+		if (AWeaponBase* weapon = Cast<AWeaponBase>(HitActor->GetOwner()))
+		{
+			HitActor = weapon;
+		}
+		
+		if (UPrimitiveComponent* ComponentToGrab = Cast<UPrimitiveComponent>(HitActor->GetRootComponent()))
+		{
+			if (HitActor == OtherGrabbedActor && bIsOtherMainHand)
+			{
+				bIsMainHand = false;
+				
+				if (AShotgunBase* Shotgun = Cast<AShotgunBase>(HitActor))
+				{
+					if (Shotgun->SelectedFiringMode == FM_Single)
+					{
+						if (IWeaponInterface* WI = Cast<IWeaponInterface>(Shotgun))
+						{
+							if (WI->GetSlideComponent())
+							{
+								PC->SetConstrainedComponents(GetMesh(), BoneToConstrainTo, WI->GetSlideComponent(), GetGripBoneName(BoneToConstrainTo));
+								PC->SetConstraintReferenceFrame(EConstraintFrame::Frame1, WI->GetSlideComponent()->GetSocketTransform(GetGripBoneName(BoneToConstrainTo), RTS_Component));
+								PC->SetConstraintReferenceFrame(EConstraintFrame::Frame2, FTransform());
+								
+								WI->StartMovingSlide(MC);
+								return Shotgun;
+							}
+						}
+					}
+				}
+				
+				PC->SetConstrainedComponents(GetMesh(), BoneToConstrainTo, ComponentToGrab, GetGripBoneName(BoneToConstrainTo));
+				
+				if (ComponentToGrab->DoesSocketExist(GetGripBoneName(BoneToConstrainTo)))
+				{
+					PC->SetConstraintReferenceFrame(EConstraintFrame::Frame1, ComponentToGrab->GetSocketTransform(GetGripBoneName(BoneToConstrainTo), RTS_Component));
+					PC->SetConstraintReferenceFrame(EConstraintFrame::Frame2, FTransform());
+				}
+				
+				return HitActor;
+			}
+			
+			bIsMainHand = true;
+			PC->SetConstrainedComponents(GetMesh(), BoneToConstrainTo,ComponentToGrab , GetHandBoneName(BoneToConstrainTo));
+			
+			if (ComponentToGrab->DoesSocketExist(GetHandBoneName(BoneToConstrainTo)))
+			{
+				PC->SetConstraintReferenceFrame(EConstraintFrame::Frame1, ComponentToGrab->GetSocketTransform(GetHandBoneName(BoneToConstrainTo), RTS_Component));
+				PC->SetConstraintReferenceFrame(EConstraintFrame::Frame2, FTransform());
+			}
+			return HitActor;
+		}
+	}
 	return nullptr;
 }
 
 void AVRCharacter::UpdateGrabbbing(AActor* GrabbedActor, bool bIsMainHand, UPhysicsConstraintComponent* PC,
 	UMotionControllerComponent* MC, FName BoneToConstrainTo)
 {
+	if (!bIsMainHand)
+	{
+		if (AShotgunBase* Shotgun = Cast<AShotgunBase>(GrabbedActor))
+		{
+			if (Shotgun->SelectedFiringMode == FM_Single)
+			{
+				if (IWeaponInterface* WI = Cast<IWeaponInterface>(Shotgun))
+				{
+					if (WI->GetSlideComponent())
+					{
+						PC->SetConstraintReferencePosition(EConstraintFrame::Frame2, WI->GetSlideComponent()->GetRelativeLocation());
+						WI->MoveSlide(MC, GetGripBoneName(BoneToConstrainTo));
+					}
+				}
+			}
+		}
+	}
 }
 
-void AVRCharacter::StopGrabbing(UPhysicsConstraintComponent* PC, AActor* GrabbedActor, AActor* OtherActor)
+void AVRCharacter::StopGrabbing(UPhysicsConstraintComponent* PC, AActor* GrabbedActor, AActor* OtherGrabbedActor)
 {
+	PC->BreakConstraint();
+	
+	if (GrabbedActor && GrabbedActor != OtherGrabbedActor)
+	{
+		GrabbedActor->SetOwner(nullptr);
+	}
 }
 
 void AVRCharacter::ReleaseGrabbedActor(AActor* GrabbedActor)
 {
+	if (GrabbedActor == RightGrabbedActor)
+	{
+		RPC->BreakConstraint();
+		RightGrabbedActor = nullptr;
+		bIsRightMainHand = false;
+		return;
+	}
+	
+	if (GrabbedActor == LeftGrabbedActor)
+	{
+		LPC->BreakConstraint();
+		LeftGrabbedActor = nullptr;
+		bIsLeftMainHand = false;
+		return;
+	}
 }
 
-FHitResult AVRCharacter::TraceForObjects(UMotionControllerComponent* MC,
-                                         TArray<TEnumAsByte<EObjectTypeQuery>> ObjecTypes)
+FHitResult AVRCharacter::TraceForObjects(UMotionControllerComponent* MC, TArray<TEnumAsByte<EObjectTypeQuery>> ObjectTypes)
 {
-	return FHitResult();
+	FHitResult Hit;
+	UKismetSystemLibrary::SphereTraceSingleForObjects(
+		GetWorld(),
+		MC->GetComponentLocation(), MC->GetComponentLocation() + FVector(0.0f, 0.0f, 1.0f),
+		GrabRadius,
+		ObjectTypes,
+		false,
+		{ this },
+		EDrawDebugTrace::None,
+		Hit,
+		true);
+	return Hit;
 }
 
 void AVRCharacter::InteractRight(const FInputActionValue& Value)
 {
+	if (!StartWeaponInteraction(RightGrabbedActor, RightWeaponInterface, RMC, RightHandBone, RPC))
+	{
+		StartAmmoBoxInteraction(RMC, RightGrabbedActor, RightHandBone);
+	}
+	
+	if (!RightGrabbedActor)
+	{
+		if (RightWeaponInterface)
+		{
+			OnRightHandAnimChanged.Broadcast(RightWeaponInterface->GetSlideGripAnimation(), nullptr, true);
+			return;
+		}
+		
+		WidgetInteraction->PressPointerKey(EKeys::LeftMouseButton);
+	}
 }
 
 void AVRCharacter::UpdateInteractRight(const FInputActionValue& Value)
 {
+	UpdateWeaponInteraction(RightWeaponInterface, bIsRightMainHand, RMC, RightHandBone, RPC);
 }
 
 void AVRCharacter::StopInteractRight(const FInputActionValue& Value)
 {
+	WidgetInteraction->ReleasePointerKey(EKeys::LeftMouseButton);
+	
+	if (!StopWeaponInteraction(RightWeaponInterface, bIsRightMainHand, RightGrabbedActor, RPC))
+	{
+		StopAmmoBoxInteraction(RightGrabbedActor);
+		return;
+	}
+	
+	if (!bIsRightMainHand)
+	{
+		OnRightHandAnimChanged.Broadcast(nullptr, nullptr, false);
+		RightWeaponInterface = nullptr;
+	}
 }
 
 void AVRCharacter::InteractLeft(const FInputActionValue& Value)
 {
+	if (!StartWeaponInteraction(LeftGrabbedActor, LeftWeaponInterface, LMC, LeftHandBone, LPC))
+	{
+		StartAmmoBoxInteraction(LMC, LeftGrabbedActor, LeftAmmoBone);
+	}
+	
+	if (!LeftGrabbedActor && LeftWeaponInterface)
+	{
+		OnLeftHandAnimChanged.Broadcast(LeftWeaponInterface->GetSlideGripAnimation(), nullptr, false);
+	}
 }
 
 void AVRCharacter::UpdateInteractLeft(const FInputActionValue& Value)
 {
+	UpdateWeaponInteraction(LeftWeaponInterface, bIsLeftMainHand, LMC, LeftHandBone, LPC);
 }
 
 void AVRCharacter::StopInteractLeft(const FInputActionValue& Value)
 {
+	if (!StopWeaponInteraction(LeftWeaponInterface, bIsLeftMainHand, LeftGrabbedActor, LPC))
+	{
+		StopAmmoBoxInteraction(LeftGrabbedActor);
+		return;
+	}
+	
+	if (!bIsLeftMainHand)
+	{
+		OnLeftHandAnimChanged.Broadcast(nullptr, nullptr, false);
+		LeftWeaponInterface = nullptr;
+	}
 }
 
 void AVRCharacter::ReleaseMagRight(const FInputActionValue& Value)
@@ -741,13 +896,13 @@ FName AVRCharacter::GetHandBoneName(FName HandBoneName)
 }
 
 bool AVRCharacter::StartWeaponInteraction(AActor*& GrabbedActor, TScriptInterface<IWeaponInterface>& WI,
-	FName BoneToConstrainTo, UPhysicsConstraintComponent* PC, UMotionControllerComponent* MC)
+	 UMotionControllerComponent* PC, FName BoneToConstrainTo, UPhysicsConstraintComponent* MC)
 {
 	return false;
 }
 
 bool AVRCharacter::UpdateWeaponInteraction(TScriptInterface<IWeaponInterface> WI, bool bIsMainHand,
-	UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicalAnimationComponent* PC)
+	UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC)
 {
 	return false;
 }
@@ -758,7 +913,7 @@ bool AVRCharacter::StopWeaponInteraction(TScriptInterface<IWeaponInterface>& WI,
 	return false;
 }
 
-void AVRCharacter::StartAmmoInteraction(UMotionControllerComponent* MC, AActor*& GrabbedActor, FName BoneToAttachTo)
+void AVRCharacter::StartAmmoBoxInteraction(UMotionControllerComponent* MC, AActor*& GrabbedActor, FName BoneToAttachTo)
 {
 }
 
