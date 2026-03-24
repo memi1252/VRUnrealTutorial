@@ -256,7 +256,7 @@ public:
 	FHitResult LatestHit;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Variables | Climbing")
-	FHitResult PreviousHit;
+	FHitResult PreviousSlidingHit;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Variables | Climbing")
 	FVector MCStartLocation;
@@ -268,10 +268,10 @@ public:
 	FVector SlidingStartNormal;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Variables | Climbing")
-	FVector ClimvingOffset;
+	FVector ClimbingOffset;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Variables | Climbing")
-	FQuat LsatClimbedActorQuat;
+	FQuat LastClimbedActorQuat;
 	
 #pragma endregion
 	
@@ -485,11 +485,11 @@ public:
 	
 	bool CheckForSlide(AActor* Actor, TScriptInterface<IWeaponInterface>& WI, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC, UMotionControllerComponent* MC);
 	
-	FName GetGripBoneName(FName GripBoneName);
+	FName GetGripBoneName(FName HandBoneName);
 	
-	FName GetHandBoneName(FName HandBoneName);
+	FName GetHandleBoneName(FName HandBoneName);
 	
-	bool StartWeaponInteraction(AActor*& GrabbedActor, TScriptInterface<IWeaponInterface>& WI, UMotionControllerComponent* PC, FName BoneToConstrainTo, UPhysicsConstraintComponent* MC);
+	bool StartWeaponInteraction(AActor*& GrabbedActor, TScriptInterface<IWeaponInterface>& WI, UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC);
 	
 	bool UpdateWeaponInteraction(TScriptInterface<IWeaponInterface> WI, bool bIsMainHand, UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC);
 	

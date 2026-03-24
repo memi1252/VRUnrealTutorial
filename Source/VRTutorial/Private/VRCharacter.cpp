@@ -32,6 +32,7 @@
 #include <PhysicsEngine/PhysicsConstraintComponent.h>
 
 #include "Iris/Core/IrisDebugging.h"
+#include "Kismet/KismetMathLibrary.h"
 
 // Sets default values
 AVRCharacter::AVRCharacter()
@@ -281,7 +282,7 @@ void AVRCharacter::UpdateVRCollison()
 	VROrigin->SetWorldLocation(FVector(
 		VROrigin->GetComponentLocation().X,
 		VROrigin->GetComponentLocation().Y,
-		CalculaterFloorLevel(BodyZOffset, ClimvingOffset.Z)));
+		CalculaterFloorLevel(BodyZOffset, ClimbingOffset.Z)));
 	
 	HMDOffset.Z = Camera->GetComponentLocation().Z - GetCapsuleComponent()->GetComponentLocation().Z;
 	
@@ -701,11 +702,11 @@ AActor* AVRCharacter::StartGrabbing(UPhysicsConstraintComponent* PC, FName BoneT
 			}
 			
 			bIsMainHand = true;
-			PC->SetConstrainedComponents(GetMesh(), BoneToConstrainTo,ComponentToGrab , GetHandBoneName(BoneToConstrainTo));
+			PC->SetConstrainedComponents(GetMesh(), BoneToConstrainTo,ComponentToGrab , GetHandleBoneName(BoneToConstrainTo));
 			
-			if (ComponentToGrab->DoesSocketExist(GetHandBoneName(BoneToConstrainTo)))
+			if (ComponentToGrab->DoesSocketExist(GetHandleBoneName(BoneToConstrainTo)))
 			{
-				PC->SetConstraintReferenceFrame(EConstraintFrame::Frame1, ComponentToGrab->GetSocketTransform(GetHandBoneName(BoneToConstrainTo), RTS_Component));
+				PC->SetConstraintReferenceFrame(EConstraintFrame::Frame1, ComponentToGrab->GetSocketTransform(GetHandleBoneName(BoneToConstrainTo), RTS_Component));
 				PC->SetConstraintReferenceFrame(EConstraintFrame::Frame2, FTransform());
 			}
 			return HitActor;
@@ -857,98 +858,381 @@ void AVRCharacter::StopInteractLeft(const FInputActionValue& Value)
 
 void AVRCharacter::ReleaseMagRight(const FInputActionValue& Value)
 {
+	if (bIsRightMainHand && RightGrabbedActor && RightWeaponInterface)
+	{
+		RightWeaponInterface->ReleaseMag();
+	}
 }
 
 void AVRCharacter::ReleaseMagLeft(const FInputActionValue& Value)
 {
+	if (bIsLeftMainHand && LeftGrabbedActor && LeftWeaponInterface)
+	{
+		LeftWeaponInterface->ReleaseMag();
+	}
 }
 
 void AVRCharacter::ChangeFiringModeRight(const FInputActionValue& Value)
 {
+	if (bIsRightMainHand && RightGrabbedActor && RightWeaponInterface)
+	{
+		RightWeaponInterface->ChangeFiringMode();
+	}
 }
 
 void AVRCharacter::ChangeFiringModeLeft(const FInputActionValue& Value)
 {
+	if (bIsLeftMainHand && LeftGrabbedActor && LeftWeaponInterface)
+	{
+		LeftWeaponInterface->ChangeFiringMode();
+	}
 }
 
 void AVRCharacter::ApplyRecoil(EControllerHand Hand, FVector LocationOffset, float Pitch)
 {
+	switch (Hand)
+	{
+	case EControllerHand::Left:
+		{
+			LeftRecoilOffset = LocationOffset;
+			LeftRecoilPitch = Pitch;
+			
+			if (!LeftRecoilTH.IsValid())
+			{
+				GetWorldTimerManager().SetTimer(LeftRecoilTH,
+					FTimerDelegate::CreateLambda([this]()
+						{
+							this->LerpRecoil(LeftRecoilOffset, LeftRecoilPitch, LeftRecoilTH);
+						}),
+						RecoilLerpTimerInterval,
+						true);
+			}
+			
+			break;
+		}
+		case EControllerHand::Right:
+		{
+			RightRecoilOffset = LocationOffset;
+			RightRecoilPitch = Pitch;
+			if (!RightRecoilTH.IsValid())
+			{
+				GetWorldTimerManager().SetTimer(RightRecoilTH,
+					FTimerDelegate::CreateLambda([this]()
+					{
+						this->LerpRecoil(RightRecoilOffset, RightRecoilPitch, RightRecoilTH);
+					}),
+					RecoilLerpTimerInterval,
+					true);
+			}
+			break;;
+		}
+	default:
+		break;
+	}
 }
 
 void AVRCharacter::LerpRecoil(FVector& LocationOffset, float& Pitch, FTimerHandle& RecoilTH)
 {
+	LocationOffset = FMath::Lerp(LocationOffset, FVector::ZeroVector, RecoilLerpAplha);
+	Pitch = FMath::Lerp(Pitch, 0.0f, RecoilLerpAplha);
+	
+	if (LocationOffset.IsNearlyZero(0.1f) && FMath::IsNearlyZero(Pitch, 0.1f))
+	{
+		LocationOffset = FVector::ZeroVector;
+		Pitch = 0.0f;
+		GetWorldTimerManager().ClearTimer(RecoilTH);
+	}
 }
 
 bool AVRCharacter::CheckForSlide(AActor* Actor, TScriptInterface<IWeaponInterface>& WI, FName BoneToConstrainTo,
 	UPhysicsConstraintComponent* PC, UMotionControllerComponent* MC)
 {
-	return true;
+	if (Actor)
+	{
+		if (AWeaponBase* Weapon = Cast<AWeaponBase>(Actor->GetOwner()))
+		{
+			Actor = Weapon;
+		}
+		
+		if (IWeaponInterface* WeaponInterface = Cast<IWeaponInterface>(Actor))
+		{
+			WI.SetInterface(WeaponInterface);
+			WI.SetObject(Actor);
+			
+			if (WI->GetSlideComponent())
+			{
+				PC->SetConstrainedComponents(GetMesh(), BoneToConstrainTo, WI->GetSlideComponent(), GetGripBoneName(BoneToConstrainTo));
+				
+				if (WI->GetSlideComponent()->DoesSocketExist(GetGripBoneName(BoneToConstrainTo)))
+				{
+					PC->SetConstraintReferenceFrame(EConstraintFrame::Frame1, WI->GetSlideComponent()->GetSocketTransform(GetGripBoneName(BoneToConstrainTo), RTS_Component));
+					PC->SetConstraintReferenceFrame(EConstraintFrame::Frame2, FTransform());
+				}
+				
+				WI->StartMovingSlide(MC);
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
-FName AVRCharacter::GetGripBoneName(FName GripBoneName)
+FName AVRCharacter::GetGripBoneName(FName HandBoneName)
 {
-	return NAME_None;
+	return FName("grip_" + HandBoneName.ToString());
 }
 
-FName AVRCharacter::GetHandBoneName(FName HandBoneName)
+FName AVRCharacter::GetHandleBoneName(FName HandBoneName)
 {
-	return NAME_None;
+	return FName("handle_" + HandBoneName.ToString());
 }
 
 bool AVRCharacter::StartWeaponInteraction(AActor*& GrabbedActor, TScriptInterface<IWeaponInterface>& WI,
-	 UMotionControllerComponent* PC, FName BoneToConstrainTo, UPhysicsConstraintComponent* MC)
+	 UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC)
 {
+	if (GrabbedActor && WI)
+	{
+		WI->FireWeapon();
+		return true;
+	}
+	
+	if (!GrabbedActor && WI)
+	{
+		FHitResult Hit = TraceForObjects(MC, GrabbleObjectTypes);
+		
+		if (AShotgunBase* Shotgun = Cast<AShotgunBase>(Hit.GetActor()))
+		{
+			if (Shotgun->SelectedFiringMode == FM_Single)
+			{
+				return false;
+			}
+		}
+		
+		return CheckForSlide(Hit.GetActor(), WI, BoneToConstrainTo, PC, MC);
+	}
 	return false;
 }
 
 bool AVRCharacter::UpdateWeaponInteraction(TScriptInterface<IWeaponInterface> WI, bool bIsMainHand,
 	UMotionControllerComponent* MC, FName BoneToConstrainTo, UPhysicsConstraintComponent* PC)
 {
+	if (WI && !bIsMainHand && WI->GetSlideComponent())
+	{
+		WI->MoveSlide(MC, GetGripBoneName(BoneToConstrainTo));
+		PC->SetConstraintReferencePosition(EConstraintFrame::Frame2, WI->GetSlideComponent()->GetRelativeLocation());
+		
+		return true;
+	}
 	return false;
 }
 
 bool AVRCharacter::StopWeaponInteraction(TScriptInterface<IWeaponInterface>& WI, bool bIsMainHand, AActor* GrabbedActor,
 	UPhysicsConstraintComponent* PC)
 {
+	if (WI)
+	{
+		if (!GrabbedActor)
+		{
+			PC->BreakConstraint();
+			WI->StopMovingSlide();
+			return true;
+		}
+		
+		WI->StopFiringWeapon();
+		return true;
+	}
+	
 	return false;
 }
 
 void AVRCharacter::StartAmmoBoxInteraction(UMotionControllerComponent* MC, AActor*& GrabbedActor, FName BoneToAttachTo)
 {
+	if (!GrabbedActor)
+	{
+		FHitResult Hit = TraceForObjects(MC, GrabbleObjectTypes);
+		
+		if (AAmmoBoxBase* AmmoBox = Cast<AAmmoBoxBase>(Hit.GetActor()))
+		{
+			GrabbedActor = AmmoBox->TakeAmmo(GetMesh(), BoneToAttachTo);
+		}
+	}
 }
 
 void AVRCharacter::StopAmmoBoxInteraction(AActor*& GrabbedActor)
 {
+	if (AAmmoBase* Ammo = Cast<AAmmoBase>(GrabbedActor))
+	{
+		if (AAmmoBoxBase* AmmoBox = Cast<AAmmoBoxBase>(Ammo->GetOwner()))
+		{
+			AmmoBox->ReturnAmmo();
+		}else
+		{
+			Ammo->Destroy();
+		}
+		
+		GrabbedActor = nullptr;
+	}
 }
 
 void AVRCharacter::StartClimbing(UMotionControllerComponent* MC, bool& bIsClimbing, bool& bIsOtherClimbing)
 {
+	if (MC)
+	{
+		FHitResult Hit = TraceForObjects(MC, ClimbableObjectTypes);
+		
+		if (Hit.bBlockingHit)
+		{
+			CurrentSlippingSpeed = 0.0f;
+			
+			bIsClimbing = true;
+			bIsOtherClimbing = false;
+			
+			MCStartLocation = MC->GetComponentLocation();
+			
+			if (Hit.GetComponent())
+			{
+				SetClimbingOffset(Hit);
+			}
+			
+			GetCharacterMovement()->MaxStepHeight = 0.0f;
+			GetCharacterMovement()->GravityScale = 0.0f;
+			GetCharacterMovement()->Velocity = FVector::ZeroVector;
+			GetCharacterMovement()->UpdateComponentVelocity();
+			
+			PreviousSlidingHit = Hit;
+			SlidingStartNormal = Hit.ImpactNormal;
+		}
+	}
 }
 
 void AVRCharacter::UpdateClimbing(UMotionControllerComponent* MC, bool bIsClimbing, bool bIsOtherClimbing)
 {
+	if (MC && bIsClimbing)
+	{
+		AddActorWorldOffset(MCStartLocation - MC->GetComponentLocation(), true);
+		
+		if (!bCanSlipWhileClimbing || (PreviousSlidingHit.PhysMaterial.IsValid() && PreviousSlidingHit.PhysMaterial.Get()->Friction > 1.0f))
+		{
+			UpdateClimbingOffSet(PreviousSlidingHit);
+		}else if (!CheckSlipping(MC))
+		{
+			StopClimbing(MC, bIsClimbing, bIsOtherClimbing);
+		}
+		
+		PreviousMcLocation = MC->GetComponentLocation();
+	}
 }
 
 void AVRCharacter::StopClimbing(UMotionControllerComponent* MC, bool& bIsClimbing, bool bIsOtherClimbing)
 {
+	if (MC && !bIsOtherClimbing && bIsClimbing)
+	{
+		GetCharacterMovement()->GravityScale = 1.0f;
+		GetCharacterMovement()->MaxStepHeight = BaseStepHeight;
+		
+		if (bCanLaunchCharacter)
+		{
+			GetCharacterMovement()->Velocity = UKismetMathLibrary::ClampVectorSize((PreviousMcLocation - MC->GetComponentLocation()) / GetWorld()->DeltaRealTimeSeconds, 0.0f, 600.0f);
+			GetCharacterMovement()->UpdateComponentVelocity();
+		}
+	}
+	
+	bIsClimbing = false;
 }
 
 bool AVRCharacter::CheckSlipping(UMotionControllerComponent* MC)
 {
+	if (MC)
+	{
+		FHitResult Hit = TraceForObjects(MC, ClimbableObjectTypes);
+		
+		if (Hit.bBlockingHit)
+		{
+			if (!FMath::IsNearlyEqual(Hit.ImpactNormal.Z, PreviousSlidingHit.ImpactNormal.Z, 0.005f))
+			{
+				return CheckSecondarySlipping(MC);
+			}
+			
+			if (Hit.ImpactNormal.Z + 0.0001 < 1.0f)
+			{
+				MCStartLocation += UpdateSlipping(Hit);
+			}
+			
+			UpdateClimbingOffSet(Hit);
+			
+			PreviousSlidingHit = Hit;
+			return true;
+		}
+		return CheckSecondarySlipping(MC);
+	}
 	return false;
 }
 
 bool AVRCharacter::CheckSecondarySlipping(UMotionControllerComponent* MC)
 {
+	if (MC)
+	{
+		FHitResult SecondHit;
+		FRotator ImpactRotation = SlidingStartNormal.Rotation() + FRotator(-90.0f, 0.0f, 0.0f);
+		FVector Start = MCStartLocation + ImpactRotation.Vector() * (GrabRadius * 2.0f);
+		
+		if (UKismetSystemLibrary::LineTraceSingleForObjects(
+			GetWorld(),
+			Start,
+			Start + PreviousSlidingHit.ImpactNormal * -(GrabRadius * 5.0f),
+			ClimbableObjectTypes,
+			false,
+			{ this },
+			EDrawDebugTrace::None,
+			SecondHit,
+			true))
+		{
+			if (SecondHit.ImpactNormal.Z > 0.0001f < 1.0f)
+			{
+				MCStartLocation += UpdateSlipping(SecondHit);
+				
+				UpdateClimbingOffSet(SecondHit);
+				
+				PreviousSlidingHit = SecondHit;
+				SlidingStartNormal = SecondHit.ImpactNormal;
+			}
+			
+			return true;
+		}
+		
+	}
 	return false;
 }
 
 void AVRCharacter::SetClimbingOffset(const FHitResult& Hit)
 {
+	if (Hit.GetComponent())
+	{
+		ClimbingOffset = MCStartLocation - Hit.GetComponent()->GetSocketLocation(Hit.BoneName);
+		LastClimbedActorQuat = Hit.GetComponent()->GetSocketQuaternion(Hit.BoneName);
+	}
 }
 
 void AVRCharacter::UpdateClimbingOffSet(const FHitResult& Hit)
 {
+	if (Hit.GetComponent())
+	{
+		if (Hit.GetComponent() != PreviousSlidingHit.GetComponent())
+		{
+			SetClimbingOffset(Hit);
+		}
+		
+		FQuat QuatOffset = Hit.GetComponent()->GetSocketQuaternion(Hit.BoneName) * LastClimbedActorQuat.Inverse();
+		ClimbingOffset = QuatOffset.RotateVector(ClimbingOffset);
+		
+		QuatOffset.X = 0.0f;
+		QuatOffset.Y = 0.0f;
+		
+		VROrigin->AddWorldRotation(QuatOffset, true);
+		
+		MCStartLocation = (Hit.GetComponent()->GetSocketLocation(Hit.BoneName) + ClimbingOffset) - MCStartLocation;
+		LastClimbedActorQuat = Hit.GetComponent()->GetSocketQuaternion(Hit.BoneName);
+	}
 }
 
 FVector AVRCharacter::UpdateSlipping(const FHitResult& Hit)
