@@ -1237,34 +1237,81 @@ void AVRCharacter::UpdateClimbingOffSet(const FHitResult& Hit)
 
 FVector AVRCharacter::UpdateSlipping(const FHitResult& Hit)
 {
+	if (Hit.PhysMaterial.IsValid())
+	{
+		float ClampedFriction = 1.0f - FMath::Clamp(Hit.PhysMaterial.Get()->Friction(), 0.0f, 1.0f);
+		float SlipSpeed =ClampedFriction * CurrentSlippingSpeed * GetWorld()->DeltaRealTimeSeconds;
+		
+		FVector SlipVelocity = FVector(0.0f, 0.0f, SlipSpeed);
+		
+		float RoundedNormal = Hit.ImpactNormal.Z;
+		
+		if (RoundedNormal > 0.0f)
+		{
+			RoundedNormal += 0.0001f;
+		}else
+		{
+			RoundedNormal -= 0.0001f;
+		}
+		
+		if ((RoundedNormal < 1.0f && RoundedNormal > 0.0f) || (bCanSlideDownOverhang && RoundedNormal < 0.0f && RoundedNormal > -0.0f))
+		{
+			FRotator ImpactRotation = Hit.ImpactNormal.Rotation() + FRotator(-90.0f, 0.0f, 0.0f);
+			SlipVelocity = -ImpactRotation.Vector() * SlipSpeed * (1.0f - Hit.ImpactNormal.Z);
+			
+			CurrentSlippingSpeed = FMath::Lerp(CurrentSlippingSpeed, GetWorld()->GetGravityZ(), GetWorld()->DeltaRealTimeSeconds * 2.0f);
+			AddActorWorldOffset(SlipVelocity, true);
+			
+			ClimbingOffset += SlipVelocity;
+			return SlipVelocity;
+		}
+	}
 	return FVector::ZeroVector;
 }
 
 void AVRCharacter::LerpClimbingBodyZOffset(float TargetOffset, float TargetHalfHeight)
 {
+	ClimbingbodyZOffset = FMath::Lerp(ClimbingbodyZOffset, TargetOffset, GetWorld()->GetDeltaSeconds() * ClimbingOffsetLerpSpeed);
+	GetCapsuleComponent()->SetCapsuleHalfHeight(FMath::Lerp(GetCapsuleComponent()->GetScaledCapsuleHalfHeight(), TargetHalfHeight, GetWorld()->GetDeltaSeconds() * ClimbingOffsetLerpSpeed));
 }
 
 void AVRCharacter::ThumbRightAxis(const FInputActionValue& Value)
 {
+	RightThumbAxisValue = Value.Get<bool>();
 }
 
 void AVRCharacter::ThumbLeftAxis(const FInputActionValue& Value)
 {
+	LeftThumbAxisValue = Value.Get<bool>();
 }
 
 void AVRCharacter::IndexRightAxis(const FInputActionValue& Value)
 {
+	RightIndexAxisValue = Value.Get<bool>();
+	
+	if (RightWeaponInterface && bIsRightMainHand)
+	{
+		RightWeaponInterface->PullTrigger(RightIndexAxisValue);
+	}
 }
 
 void AVRCharacter::IndexLeftAxis(const FInputActionValue& Value)
 {
+	LeftIndexAxisValue = Value.Get<bool>();
+	
+	if (LeftWeaponInterface && bIsLeftMainHand)
+	{
+		LeftWeaponInterface->PullTrigger(LeftIndexAxisValue);
+	}
 }
 
 void AVRCharacter::GripRightAxis(const FInputActionValue& Value)
 {
+	RightGripAxisValue = Value.Get<bool>();
 }
 
 void AVRCharacter::GripLeftAxis(const FInputActionValue& Value)
 {
+	LeftGripAxisValue = Value.Get<bool>();
 }
 
