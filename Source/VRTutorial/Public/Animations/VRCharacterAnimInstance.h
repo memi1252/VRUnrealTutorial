@@ -164,7 +164,7 @@ public:
 	UFUNCTION(BlueprintCallable, blueprintPure)
 	float GetCharacterHeightRatio();
 	
-	UFUNCTION()
+	UFUNCTION(BlueprintCallable, blueprintPure)
 	bool GetIsClimbing();
 	
 	UFUNCTION()

@@ -1187,7 +1187,7 @@ bool AVRCharacter::CheckSecondarySlipping(UMotionControllerComponent* MC)
 			SecondHit,
 			true))
 		{
-			if (SecondHit.ImpactNormal.Z > 0.0001f < 1.0f)
+			if (SecondHit.ImpactNormal.Z + 0.0001f < 1.0f)
 			{
 				MCStartLocation += UpdateSlipping(SecondHit);
 				
@@ -1239,7 +1239,7 @@ FVector AVRCharacter::UpdateSlipping(const FHitResult& Hit)
 {
 	if (Hit.PhysMaterial.IsValid())
 	{
-		float ClampedFriction = 1.0f - FMath::Clamp(Hit.PhysMaterial.Get()->Friction(), 0.0f, 1.0f);
+		float ClampedFriction = 1.0f - FMath::Clamp(Hit.PhysMaterial.Get()->Friction, 0.0f, 1.0f);
 		float SlipSpeed =ClampedFriction * CurrentSlippingSpeed * GetWorld()->DeltaRealTimeSeconds;
 		
 		FVector SlipVelocity = FVector(0.0f, 0.0f, SlipSpeed);

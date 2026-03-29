@@ -17,7 +17,7 @@ void USettingsMenuWidget::NativeConstruct()
 	
 	if (UVRSaveGame* SaveGame = UVRSaveGame::LoadVRSaveGameFromSlot(UVRSaveGame::GetDefaultSlotName(), 0))
 	{
-		GeneralSettingsWidget->CurrentTurnStyle - SaveGame->BaseHeight;
+		GeneralSettingsWidget->CurrentTurnStyle = SaveGame->TurnStyle;
 		GeneralSettingsWidget->CurrentMovementDirection = SaveGame->MovementDirection;
 		
 		AudioSettingsWidget->CurrentMasterVolume = SaveGame->MasterVolume;
